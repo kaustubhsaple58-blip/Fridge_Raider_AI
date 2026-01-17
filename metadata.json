@@ -1,0 +1,8 @@
+{
+  "name": "FRIDGERAIDER",
+  "description": "An ultra-modern food waste reduction platform that tracks inventory, generates AI-powered meal plans, and suggests recipes based on your fridge's contents.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
