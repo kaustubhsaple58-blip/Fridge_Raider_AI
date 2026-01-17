@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { InventoryItem, UserPreferences, MealPlanDay } from '../types';
 import { generateMealPlan } from '../geminiService';
-import { Calendar, ChevronDown, ChevronUp, Loader2, Sparkles, ShoppingCart, ListChecks } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronUp, Loader2, Sparkles, ShoppingCart, ListChecks, AlertCircle } from 'lucide-react';
 
 interface PlannerProps {
   inventory: InventoryItem[];
@@ -13,13 +13,25 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
   const [plan, setPlan] = useState<MealPlanDay[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number>(3);
+  const [error, setError] = useState(false);
 
   const fetchPlan = async (days: number) => {
     if (inventory.length === 0) return;
     setLoading(true);
-    const data = await generateMealPlan(inventory, preferences, days);
-    setPlan(data);
-    setLoading(false);
+    setError(false);
+    try {
+      const data = await generateMealPlan(inventory, preferences, days);
+      if (data && Array.isArray(data)) {
+        setPlan(data);
+      } else {
+        setError(true);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -49,11 +61,12 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
             <button
               key={d}
               onClick={() => setSelectedDays(d)}
+              disabled={loading}
               className={`px-4 py-2 rounded-xl text-sm font-black transition-all ${
                 selectedDays === d 
                   ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20' 
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
+              } disabled:opacity-50`}
             >
               {d}D
             </button>
@@ -66,6 +79,19 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
            <div className="space-y-6">
              {[1,2,3].map(i => <div key={i} className="h-64 glass rounded-[2rem] animate-pulse" />)}
            </div>
+        ) : error ? (
+          <div className="h-full flex flex-col items-center justify-center text-red-400 gap-4 glass rounded-3xl p-8 border-red-500/20">
+            <AlertCircle size={48} />
+            <div className="text-center">
+              <h3 className="text-xl font-bold">Plan Generation Failed</h3>
+              <p className="text-sm opacity-70">The AI had trouble organizing your meals. Please try again.</p>
+            </div>
+            <button onClick={() => fetchPlan(selectedDays)} className="px-6 py-2 bg-white text-slate-950 font-bold rounded-xl hover:bg-slate-200 transition-all">Retry</button>
+          </div>
+        ) : plan.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50 italic">
+            No plan generated. Try adding more items.
+          </div>
         ) : (
           plan.map((dayPlan) => (
             <div key={dayPlan.day} className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
@@ -89,11 +115,20 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
 const MealCard = ({ title, meal }: { title: string, meal: any }) => {
   const [expanded, setExpanded] = useState(false);
 
+  // Defense against incomplete AI responses
+  if (!meal) {
+    return (
+      <div className="glass p-6 rounded-3xl border-dashed border-white/10 flex items-center justify-center text-slate-500 italic text-sm">
+        Meal info unavailable
+      </div>
+    );
+  }
+
   return (
     <div className="glass p-6 rounded-3xl border-white/5 flex flex-col transition-all hover:border-cyan-500/30">
       <div className="mb-4">
         <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-1">{title}</span>
-        <h4 className="font-bold text-lg leading-tight text-white">{meal.name}</h4>
+        <h4 className="font-bold text-lg leading-tight text-white">{meal.name || 'Untitled Recipe'}</h4>
       </div>
       
       <div className="space-y-3 mb-4">
@@ -102,11 +137,15 @@ const MealCard = ({ title, meal }: { title: string, meal: any }) => {
           Ingredients
         </div>
         <div className="flex flex-wrap gap-2">
-          {meal.ingredients.map((ing: any, idx: number) => (
-            <span key={idx} className="bg-white/5 border border-white/10 px-2 py-1 rounded text-[10px] font-medium text-slate-300">
-              {ing.amount}{ing.unit} {ing.name}
-            </span>
-          ))}
+          {meal.ingredients && meal.ingredients.length > 0 ? (
+            meal.ingredients.map((ing: any, idx: number) => (
+              <span key={idx} className="bg-white/5 border border-white/10 px-2 py-1 rounded text-[10px] font-medium text-slate-300">
+                {ing.amount || '??'}{ing.unit || ''} {ing.name || 'Unknown'}
+              </span>
+            ))
+          ) : (
+            <span className="text-[10px] text-slate-500 italic">No ingredient list</span>
+          )}
         </div>
       </div>
 
@@ -124,12 +163,16 @@ const MealCard = ({ title, meal }: { title: string, meal: any }) => {
       {expanded && (
         <div className="mt-4 pt-4 border-t border-white/5 animate-in slide-in-from-top-2 duration-300">
           <ul className="space-y-3">
-            {meal.steps.map((step: string, idx: number) => (
-              <li key={idx} className="text-xs text-slate-400 flex gap-3">
-                <span className="shrink-0 w-5 h-5 rounded-full bg-cyan-500/10 text-cyan-500 flex items-center justify-center font-bold text-[10px]">{idx + 1}</span>
-                {step}
-              </li>
-            ))}
+            {meal.steps && meal.steps.length > 0 ? (
+              meal.steps.map((step: string, idx: number) => (
+                <li key={idx} className="text-xs text-slate-400 flex gap-3">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-cyan-500/10 text-cyan-500 flex items-center justify-center font-bold text-[10px]">{idx + 1}</span>
+                  {step}
+                </li>
+              ))
+            ) : (
+              <li className="text-xs text-slate-500 italic">No steps provided</li>
+            )}
           </ul>
         </div>
       )}
