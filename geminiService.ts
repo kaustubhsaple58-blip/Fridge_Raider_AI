@@ -55,16 +55,17 @@ export async function extractPreferences(text: string): Promise<string[]> {
 }
 
 /**
- * Generates recipes based on inventory and preferences.
+ * Generates recipes based on inventory and preferences using Flash for speed.
  */
 export async function generateRecipes(inventory: InventoryItem[], prefs: UserPreferences) {
+  if (inventory.length === 0) return [];
   const inventoryStr = inventory.map(i => `${i.quantity}${i.unit} ${i.name}`).join(", ");
   const tagsStr = prefs.tags.join(", ");
   
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview', // Switched to Flash for speed
       contents: `You are an expert chef. Based on these ingredients: [${inventoryStr}] and dietary restrictions: [${tagsStr}], generate 3 creative recipes. 
       Strictly use only what is available in the inventory.
       Units must be in universal metric (g, ml, pcs).
@@ -112,13 +113,14 @@ export async function generateRecipes(inventory: InventoryItem[], prefs: UserPre
  * Generates a meal plan for a specific number of days.
  */
 export async function generateMealPlan(inventory: InventoryItem[], prefs: UserPreferences, days: number = 3) {
+  if (inventory.length === 0) return [];
   const inventoryStr = inventory.map(i => `${i.quantity}${i.unit} ${i.name}`).join(", ");
   const tagsStr = prefs.tags.join(", ");
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-pro-preview', // Keep Pro for better plan optimization
       contents: `Create a ${days}-day meal plan (Breakfast, Lunch, Dinner) using ONLY these ingredients: [${inventoryStr}]. Dietary tags: [${tagsStr}].
       Equalize units (e.g., 1kg = 1000g). Strictly provide all quantities in universal metric (g, ml, pcs).
       JSON output: Array of ${days} objects with "day" (1-${days}), "breakfast", "lunch", "dinner". Each meal should have "name", "ingredients" (Array of {name, amount, unit}), and "steps" (Array of 4-5 strings).`,
@@ -204,24 +206,47 @@ export async function generateMealPlan(inventory: InventoryItem[], prefs: UserPr
 }
 
 /**
- * Chat with AI including Google Search tool for real-time info.
+ * Chat with AI using streaming for faster perceived response time.
  */
-export async function chatWithAI(message: string, inventory: InventoryItem[]) {
+export async function chatWithAIStream(
+  message: string, 
+  inventory: InventoryItem[], 
+  onChunk: (text: string) => void,
+  onComplete: (groundingLinks: any[]) => void
+) {
   const inventoryStr = inventory.map(i => `${i.quantity}${i.unit} ${i.name}`).join(", ");
   
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
+    const responseStream = await ai.models.generateContentStream({
       model: 'gemini-3-flash-preview',
       contents: `User message: "${message}". Context: User's fridge contains [${inventoryStr}]. You are an AI assistant for FRIDGERAIDER. If searching for recipes or current news, use the google search tool.`,
       config: {
         tools: [{ googleSearch: {} }]
       }
     });
-    const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => chunk.web).filter(Boolean) || [];
-    return { text: response.text || "No response received.", links: groundingLinks };
+
+    let fullText = "";
+    let links: any[] = [];
+
+    for await (const chunk of responseStream) {
+      const text = chunk.text;
+      if (text) {
+        fullText += text;
+        onChunk(fullText);
+      }
+      
+      // Attempt to extract grounding metadata from chunks if available
+      const metadata = chunk.candidates?.[0]?.groundingMetadata;
+      if (metadata?.groundingChunks) {
+        links = metadata.groundingChunks.map((c: any) => c.web).filter(Boolean);
+      }
+    }
+    
+    onComplete(links);
   } catch (e) {
-    console.error("Chat Error:", e);
-    return { text: "I'm sorry, I encountered an error processing your request.", links: [] };
+    console.error("Chat Stream Error:", e);
+    onChunk("I'm sorry, I encountered an error processing your request.");
+    onComplete([]);
   }
 }

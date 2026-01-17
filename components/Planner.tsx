@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { InventoryItem, UserPreferences, MealPlanDay } from '../types';
 import { generateMealPlan } from '../geminiService';
 import { Calendar, ChevronDown, ChevronUp, Loader2, Sparkles, ShoppingCart, ListChecks, AlertCircle } from 'lucide-react';
@@ -7,12 +7,14 @@ import { Calendar, ChevronDown, ChevronUp, Loader2, Sparkles, ShoppingCart, List
 interface PlannerProps {
   inventory: InventoryItem[];
   preferences: UserPreferences;
+  plan: MealPlanDay[];
+  setPlan: React.Dispatch<React.SetStateAction<MealPlanDay[]>>;
+  selectedDays: number;
+  setSelectedDays: (days: number) => void;
 }
 
-const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
-  const [plan, setPlan] = useState<MealPlanDay[]>([]);
+const Planner: React.FC<PlannerProps> = ({ inventory, preferences, plan, setPlan, selectedDays, setSelectedDays }) => {
   const [loading, setLoading] = useState(false);
-  const [selectedDays, setSelectedDays] = useState<number>(3);
   const [error, setError] = useState(false);
 
   const fetchPlan = async (days: number) => {
@@ -34,9 +36,10 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
     }
   };
 
-  useEffect(() => {
-    fetchPlan(selectedDays);
-  }, [selectedDays]);
+  const handleDayChange = (d: number) => {
+    setSelectedDays(d);
+    fetchPlan(d);
+  };
 
   if (inventory.length === 0) {
     return (
@@ -60,7 +63,7 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
           {[1, 3, 5, 7].map(d => (
             <button
               key={d}
-              onClick={() => setSelectedDays(d)}
+              onClick={() => handleDayChange(d)}
               disabled={loading}
               className={`px-4 py-2 rounded-xl text-sm font-black transition-all ${
                 selectedDays === d 
@@ -75,7 +78,7 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-8 pr-2 custom-scrollbar">
-        {loading ? (
+        {loading || (plan.length === 0 && inventory.length > 0) ? (
            <div className="space-y-6">
              {[1,2,3].map(i => <div key={i} className="h-64 glass rounded-[2rem] animate-pulse" />)}
            </div>
@@ -88,13 +91,9 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
             </div>
             <button onClick={() => fetchPlan(selectedDays)} className="px-6 py-2 bg-white text-slate-950 font-bold rounded-xl hover:bg-slate-200 transition-all">Retry</button>
           </div>
-        ) : plan.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50 italic">
-            No plan generated. Try adding more items.
-          </div>
         ) : (
           plan.map((dayPlan) => (
-            <div key={dayPlan.day} className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+            <div key={dayPlan.day} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <h3 className="text-xl font-black flex items-center gap-2 text-cyan-400 sticky top-0 z-20 bg-slate-950 py-2">
                 <span className="w-8 h-8 rounded-full bg-cyan-400/20 flex items-center justify-center text-sm font-black">0{dayPlan.day}</span>
                 DAY {dayPlan.day}
@@ -115,7 +114,6 @@ const Planner: React.FC<PlannerProps> = ({ inventory, preferences }) => {
 const MealCard = ({ title, meal }: { title: string, meal: any }) => {
   const [expanded, setExpanded] = useState(false);
 
-  // Defense against incomplete AI responses
   if (!meal) {
     return (
       <div className="glass p-6 rounded-3xl border-dashed border-white/10 flex items-center justify-center text-slate-500 italic text-sm">

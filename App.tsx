@@ -1,19 +1,29 @@
 
-import React, { useState, useEffect } from 'react';
-import { InventoryItem, UserPreferences, Tab } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { InventoryItem, UserPreferences, Tab, Recipe, MealPlanDay } from './types';
 import Onboarding from './components/Onboarding';
 import Fridge from './components/Fridge';
 import Recipes from './components/Recipes';
 import Planner from './components/Planner';
 import Chat from './components/Chat';
-import { LayoutGrid, ChefHat, CalendarDays, MessageSquare, Utensils } from 'lucide-react';
+import { LayoutGrid, ChefHat, CalendarDays, MessageSquare, Utensils, RefreshCw } from 'lucide-react';
+import { generateRecipes, generateMealPlan } from './geminiService';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('ONBOARDING');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [preferences, setPreferences] = useState<UserPreferences>({ tags: [], rawText: '' });
+  
+  // Shared global states for faster tab loading
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [mealPlan, setMealPlan] = useState<MealPlanDay[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [planDays, setPlanDays] = useState(3);
 
-  // Persistence simulation (user_data.json equivalent via localStorage)
+  // Refs to track if data needs refreshing
+  const lastPrefetchInventoryStr = useRef("");
+
+  // Persistence simulation
   useEffect(() => {
     const savedInventory = localStorage.getItem('fridge_inventory');
     const savedPrefs = localStorage.getItem('fridge_preferences');
@@ -27,11 +37,34 @@ const App: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem('fridge_inventory', JSON.stringify(inventory));
+    // Check if we should prefetch
+    const currentInvStr = JSON.stringify(inventory);
+    if (currentInvStr !== lastPrefetchInventoryStr.current && inventory.length > 0) {
+      prefetchData();
+    }
   }, [inventory]);
 
   useEffect(() => {
     localStorage.setItem('fridge_preferences', JSON.stringify(preferences));
   }, [preferences]);
+
+  const prefetchData = async () => {
+    lastPrefetchInventoryStr.current = JSON.stringify(inventory);
+    setIsSyncing(true);
+    try {
+      // Run both in parallel for speed
+      const [newRecipes, newPlan] = await Promise.all([
+        generateRecipes(inventory, preferences),
+        generateMealPlan(inventory, preferences, planDays)
+      ]);
+      if (newRecipes.length > 0) setRecipes(newRecipes);
+      if (newPlan.length > 0) setMealPlan(newPlan);
+    } catch (err) {
+      console.error("Prefetch error:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleOnboardingComplete = (prefs: UserPreferences) => {
     setPreferences(prefs);
@@ -45,9 +78,26 @@ const App: React.FC = () => {
       case 'FRIDGE':
         return <Fridge inventory={inventory} setInventory={setInventory} />;
       case 'RECIPES':
-        return <Recipes inventory={inventory} setInventory={setInventory} preferences={preferences} />;
+        return (
+          <Recipes 
+            inventory={inventory} 
+            setInventory={setInventory} 
+            preferences={preferences} 
+            recipes={recipes}
+            setRecipes={setRecipes}
+          />
+        );
       case 'PLANNER':
-        return <Planner inventory={inventory} preferences={preferences} />;
+        return (
+          <Planner 
+            inventory={inventory} 
+            preferences={preferences} 
+            plan={mealPlan} 
+            setPlan={setMealPlan} 
+            selectedDays={planDays}
+            setSelectedDays={setPlanDays}
+          />
+        );
       case 'CHAT':
         return <Chat inventory={inventory} preferences={preferences} />;
       default:
@@ -64,11 +114,19 @@ const App: React.FC = () => {
 
       <div className="max-w-6xl mx-auto px-4 py-8 relative z-10 flex flex-col h-screen">
         <header className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter flex items-center gap-2">
-              <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">FRIDGERAIDER</span>
-            </h1>
-            <p className="text-slate-400 font-medium">Your Antifood Wastage Warrior</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-4xl font-black tracking-tighter flex items-center gap-2">
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">FRIDGERAIDER</span>
+              </h1>
+              <p className="text-slate-400 font-medium">Your Antifood Wastage Warrior</p>
+            </div>
+            {isSyncing && (
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-cyan-400 animate-pulse">
+                <RefreshCw size={12} className="animate-spin" />
+                Updating AI Intelligence...
+              </div>
+            )}
           </div>
           
           {activeTab !== 'ONBOARDING' && (

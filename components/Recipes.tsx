@@ -1,18 +1,18 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { InventoryItem, UserPreferences, Recipe } from '../types';
 import { generateRecipes } from '../geminiService';
-// Added missing icon imports: ChefHat and Utensils
-import { Star, Clock, Flame, ChevronRight, CheckCircle2, Loader2, RefreshCw, ChefHat, Utensils } from 'lucide-react';
+import { Star, Clock, Flame, CheckCircle2, Loader2, RefreshCw, ChefHat, Utensils } from 'lucide-react';
 
 interface RecipesProps {
   inventory: InventoryItem[];
   setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   preferences: UserPreferences;
+  recipes: Recipe[];
+  setRecipes: React.Dispatch<React.SetStateAction<Recipe[]>>;
 }
 
-const Recipes: React.FC<RecipesProps> = ({ inventory, setInventory, preferences }) => {
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+const Recipes: React.FC<RecipesProps> = ({ inventory, setInventory, preferences, recipes, setRecipes }) => {
   const [loading, setLoading] = useState(false);
   const [cooking, setCooking] = useState<string | null>(null);
 
@@ -24,32 +24,21 @@ const Recipes: React.FC<RecipesProps> = ({ inventory, setInventory, preferences 
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchRecipes();
-  }, []);
-
   const handleCookThis = (recipe: Recipe) => {
     setCooking(recipe.id);
     
     setTimeout(() => {
-      // Deduct items from inventory with unit equalization logic
       setInventory(prev => {
         const next = [...prev];
         recipe.ingredients.forEach(needed => {
           const index = next.findIndex(item => item.name.toLowerCase() === needed.name.toLowerCase());
           if (index !== -1) {
-            // Very basic equalization: assume g/ml/pcs are standard. 
-            // Real app would use a library like 'convert-units'
             const currentItem = next[index];
             let remaining = currentItem.quantity;
-            
-            // Basic kg -> g conversion if needed
             let neededAmount = needed.amount;
             if (currentItem.unit === 'kg' && needed.unit === 'g') neededAmount /= 1000;
             if (currentItem.unit === 'g' && needed.unit === 'kg') neededAmount *= 1000;
-            
             remaining -= neededAmount;
-            
             if (remaining <= 0) {
               next.splice(index, 1);
             } else {
@@ -90,14 +79,14 @@ const Recipes: React.FC<RecipesProps> = ({ inventory, setInventory, preferences 
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-        {loading ? (
+        {loading || (recipes.length === 0 && inventory.length > 0) ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map(i => <div key={i} className="h-64 glass rounded-3xl animate-pulse" />)}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {recipes.map((recipe) => (
-              <div key={recipe.id} className="glass p-6 rounded-[2rem] border-white/5 flex flex-col justify-between">
+              <div key={recipe.id} className="glass p-6 rounded-[2rem] border-white/5 flex flex-col justify-between animate-in fade-in zoom-in-95 duration-300">
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-2xl font-black tracking-tight leading-tight w-2/3">{recipe.name}</h3>
